@@ -120,6 +120,8 @@ class ReaderProxy {
       RefPtr<AudioData> aAudio);
   RefPtr<ReaderProxy::AudioDataPromise> OnAudioDataRequestFailed(
       const MediaResult& aError);
+  RefPtr<VideoDataPromise> RequestVideoDataInternal(
+      const media::TimeUnit& aTimeThreshold, bool aRequestNextVideoKeyFrame);
 
   const RefPtr<AbstractThread> mOwnerThread;
   const RefPtr<MediaFormatReader> mReader;
