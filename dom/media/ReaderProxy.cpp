@@ -76,18 +76,34 @@ RefPtr<ReaderProxy::VideoDataPromise> ReaderProxy::RequestVideoData(
                              ? aTimeThreshold + StartTime()
                              : aTimeThreshold;
 
+  return RequestVideoDataInternal(threshold, aRequestNextVideoKeyFrame);
+}
+
+RefPtr<ReaderProxy::VideoDataPromise> ReaderProxy::RequestVideoDataInternal(
+    const media::TimeUnit& aTimeThreshold, bool aRequestNextVideoKeyFrame) {
+  MOZ_ASSERT(mOwnerThread->IsCurrentThreadIn());
+  MOZ_ASSERT(!mShutdown);
+
   auto startTime = StartTime();
   return InvokeAsync(mReader->OwnerThread(), mReader.get(), __func__,
-                     &MediaFormatReader::RequestVideoData, threshold,
+                     &MediaFormatReader::RequestVideoData, aTimeThreshold,
                      aRequestNextVideoKeyFrame)
       ->Then(
           mOwnerThread, __func__,
-          [startTime](RefPtr<VideoData> aVideo) {
-            return aVideo->AdjustForStartTime(startTime)
-                       ? VideoDataPromise::CreateAndResolve(aVideo.forget(),
-                                                            __func__)
-                       : VideoDataPromise::CreateAndReject(
-                             NS_ERROR_DOM_MEDIA_OVERFLOW_ERR, __func__);
+          [self = RefPtr(this), startTime, aTimeThreshold,
+           aRequestNextVideoKeyFrame](RefPtr<VideoData> aVideo) {
+            if (!aVideo->AdjustForStartTime(startTime)) {
+              return VideoDataPromise::CreateAndReject(
+                  NS_ERROR_DOM_MEDIA_OVERFLOW_ERR, __func__);
+            }
+            if (aVideo->mTime.IsNegative()) {
+              // Decode preroll may be needed for future frames, but it should
+              // not be presented before the media timeline starts.
+              return self->RequestVideoDataInternal(aTimeThreshold,
+                                                    aRequestNextVideoKeyFrame);
+            }
+            return VideoDataPromise::CreateAndResolve(aVideo.forget(),
+                                                      __func__);
           },
           [](const MediaResult& aError) {
             return VideoDataPromise::CreateAndReject(aError, __func__);
